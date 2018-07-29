@@ -1,0 +1,8 @@
+/.idea
+*.ged
+/out
+/mft
+/anc
+/.DS_Store
+/gedcom2text
+/gedcom2html
