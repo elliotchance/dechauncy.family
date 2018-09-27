@@ -1,22 +1,32 @@
 #!/bin/bash
 
-# Make sure we build the latest binary in the real package.
-cd ../gedcom/gedcom2html
-go build
-cd -
-cp ../gedcom/gedcom2html/gedcom2html .
+#./html.sh
 
-rm -rf out
-mkdir -p out
-./gedcom2html -gedcom "Chance Family Tree/Chance Family Tree.ged" -output-dir out
+cd /tmp/out
 
-cd out
+# Run diff.
+aws s3 cp s3://dechauncy.family/checksum.csv /tmp/checksum.csv
+echo "Total files: $(ls -1 | wc -l)"
+DIFF="diff /tmp/checksum.csv /tmp/out/checksum.csv --suppress-common-lines -y -W 1000"
+echo "New files: $($DIFF | egrep "\||>" | wc -l)"
+echo "Changed files: $($DIFF | egrep "\|" | wc -l)"
+echo "Delete files: $($DIFF | grep "<" | wc -l)"
 
-aws s3 sync . s3://dechauncy.family
+NEW_FILES=$($DIFF | egrep "\||>" | rev | cut -f1 | rev | cut -d, -f1)
+DEL_FILES=$($DIFF | grep "<" | cut -d, -f1)
 
-for file in $(aws s3 ls s3://dechauncy.family | cut -c32-)
-do
-    if [ ! -f "$file" ]; then
-        aws s3 rm "s3://dechauncy.family/$file"
-    fi
+# Prepare jobs
+echo "" > /tmp/jobs.txt
+
+for FILE in $NEW_FILES; do
+    echo aws s3 cp "./$FILE" "s3://dechauncy.family/$FILE" >> /tmp/jobs.txt
 done
+
+for FILE in $DEL_FILES; do
+    echo aws s3 rm "s3://dechauncy.family/$FILE" >> /tmp/jobs.txt
+done
+
+echo aws s3 cp checksum.csv "s3://dechauncy.family/checksum.csv" >> /tmp/jobs.txt
+
+# Run jobs
+parallel --jobs 20 < /tmp/jobs.txt
